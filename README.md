@@ -44,10 +44,33 @@ python 울산_1반_김윤성.py yellow_tripdata_2026-05.parquet --max-training-r
 - `plotly_hourly_payment.html`: 인터랙티브 차트
 - `taxi_long_trip_pipeline.joblib`: 학습된 Pipeline 모델
 
+## 현재 시각 대기 지역 Top 3 추천
+
+`recommend_waiting_zones.py`는 운행 전에 알 수 있는 요일·시간·승차 지역과
+과거 시간대별 수요만 사용해 전체 승차 및 장거리 승차 건수를 예측합니다.
+기본 장거리 기준은 5 miles이며 결과창은 HTML로 생성됩니다.
+
+```bash
+python recommend_waiting_zones.py yellow_tripdata_2026-05.parquet
+open recommendation_outputs/current_recommendations.html
+```
+
+원하는 뉴욕 현지 시각을 지정해 모의실험할 수도 있습니다.
+
+```bash
+python recommend_waiting_zones.py yellow_tripdata_2026-05.parquet --at "2026-07-17 22:00"
+```
+
+추천 산출물:
+
+- `current_recommendations.html`: Top 3 추천 카드와 상위 10개 지역 차트
+- `current_zone_ranking.csv`: 전체 지역 예측 순위
+- `waiting_zone_demand_models.joblib`: 전체·장거리 수요 Pipeline 모델
+- `recommendation_metrics.json`: MAE·RMSE·Precision@3
+
 ## 검증 결과
 
 - 전체 데이터: 4,090,836행 × 20열
 - 정제 후 데이터: 3,980,145행
 - Accuracy: 0.9318
 - F1 score: 0.9320
-
