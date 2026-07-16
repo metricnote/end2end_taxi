@@ -50,6 +50,11 @@ python 울산_1반_김윤성.py yellow_tripdata_2026-05.parquet --max-training-r
 과거 시간대별 수요만 사용해 전체 승차 및 장거리 승차 건수를 예측합니다.
 기본 장거리 기준은 5 miles이며 결과창은 HTML로 생성됩니다.
 
+수요 데이터의 시간 순서를 보존하기 위해 무작위 K-fold 대신 5-fold
+`TimeSeriesSplit`을 사용합니다. 5월 1~25일 내부에서 세 가지 모델 설정을
+교차검증하고, 평균 장거리 수요 MAE가 가장 낮은 설정을 고른 뒤
+5월 26~31일을 완전히 분리된 최종 테스트 구간으로 평가합니다.
+
 ```bash
 python recommend_waiting_zones.py yellow_tripdata_2026-05.parquet
 open recommendation_outputs/current_recommendations.html
@@ -67,6 +72,12 @@ python recommend_waiting_zones.py yellow_tripdata_2026-05.parquet --at "2026-07-
 - `current_zone_ranking.csv`: 전체 지역 예측 순위
 - `waiting_zone_demand_models.joblib`: 전체·장거리 수요 Pipeline 모델
 - `recommendation_metrics.json`: MAE·RMSE·Precision@3
+
+5-fold 적용 후 최종 테스트 결과:
+
+- 장거리 수요 MAE: 1.3837건
+- 장거리 수요 RMSE: 3.8209건
+- 추천 Precision@3: 76.16%
 
 ## 검증 결과
 

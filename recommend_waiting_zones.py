@@ -2,6 +2,10 @@
 
 날짜×시간×승차 지역으로 과거 운행을 집계하고, 운행 전에 알 수 있는
 요일·시간·승차 지역·과거 수요 평균만으로 전체 및 장거리 승차 건수를 예측한다.
+
+변경내역:
+- 2026-07-16: 현재 시각 기준 장거리 승객 대기지역 Top 3 추천 구현
+- 2026-07-16: 미래 데이터 누수를 막는 시계열 5-fold 교차검증과 모델 설정 선택 추가
 """
 
 from __future__ import annotations
@@ -22,6 +26,7 @@ try:
     from sklearn.ensemble import HistGradientBoostingRegressor
     from sklearn.impute import SimpleImputer
     from sklearn.metrics import mean_absolute_error, mean_squared_error
+    from sklearn.model_selection import TimeSeriesSplit
     from sklearn.pipeline import Pipeline
 except ModuleNotFoundError as error:
     raise SystemExit(
@@ -119,22 +124,28 @@ def make_features(frame: pd.DataFrame, priors: dict[str, object]) -> pd.DataFram
     return result
 
 
-def build_model() -> Pipeline:
+def build_model(parameters: dict[str, float | int] | None = None) -> Pipeline:
     """결측치 처리와 수요 회귀 모델을 하나의 Pipeline으로 구성한다."""
+    model_parameters = {
+        "max_iter": 140, "learning_rate": 0.07, "l2_regularization": 1.0,
+        "max_leaf_nodes": 31, "random_state": 42,
+    }
+    if parameters:
+        model_parameters.update(parameters)
     return Pipeline([
         ("imputer", SimpleImputer(strategy="median")),
-        ("regressor", HistGradientBoostingRegressor(
-            max_iter=140, learning_rate=0.07, l2_regularization=1.0, random_state=42,
-        )),
+        ("regressor", HistGradientBoostingRegressor(**model_parameters)),
     ])
 
 
-def fit_models(history: pd.DataFrame) -> tuple[Pipeline, Pipeline, dict[str, object]]:
+def fit_models(
+    history: pd.DataFrame, parameters: dict[str, float | int] | None = None
+) -> tuple[Pipeline, Pipeline, dict[str, object]]:
     """전체 승차와 장거리 승차 건수를 예측하는 두 Pipeline을 학습한다."""
     priors = build_priors(history)
     featured = make_features(history, priors)
-    total_model = build_model()
-    long_model = build_model()
+    total_model = build_model(parameters)
+    long_model = build_model(parameters)
     total_model.fit(featured[FEATURES], featured["total_pickups"])
     long_model.fit(featured[FEATURES], featured["long_trip_count"])
     return total_model, long_model, priors
@@ -166,9 +177,12 @@ def precision_at_k(predictions: pd.DataFrame, k: int = 3) -> float:
     return float(np.mean(scores))
 
 
-def evaluate_split(train: pd.DataFrame, test: pd.DataFrame, label: str) -> dict[str, float]:
+def evaluate_split(
+    train: pd.DataFrame, test: pd.DataFrame, label: str,
+    parameters: dict[str, float | int] | None = None,
+) -> dict[str, float]:
     """시간 순서 분할에서 수요 오차와 추천 Precision@3를 평가한다."""
-    total_model, long_model, priors = fit_models(train)
+    total_model, long_model, priors = fit_models(train, parameters)
     predicted = predict_demand(test, total_model, long_model, priors)
     metrics = {
         "total_mae": float(mean_absolute_error(predicted["total_pickups"], predicted["predicted_total"])),
@@ -179,6 +193,59 @@ def evaluate_split(train: pd.DataFrame, test: pd.DataFrame, label: str) -> dict[
     }
     print(f"[{label}] " + ", ".join(f"{key}={value:.4f}" for key, value in metrics.items()))
     return metrics
+
+
+def tune_with_time_series_5fold(history: pd.DataFrame) -> tuple[dict[str, float | int], dict[str, object]]:
+    """시간 순서를 유지한 5-fold 교차검증으로 장거리 수요 MAE가 가장 낮은 설정을 고른다.
+
+    일반 KFold처럼 데이터를 무작위로 섞지 않는다. 각 fold는 과거 날짜로 학습하고
+    그 이후 날짜로 검증하므로 실제 미래 수요 예측 상황과 같은 방향을 유지한다.
+    """
+    candidates: list[dict[str, float | int]] = [
+        {"max_iter": 100, "learning_rate": 0.08, "l2_regularization": 1.0, "max_leaf_nodes": 31},
+        {"max_iter": 160, "learning_rate": 0.05, "l2_regularization": 2.0, "max_leaf_nodes": 31},
+        {"max_iter": 140, "learning_rate": 0.06, "l2_regularization": 1.0, "max_leaf_nodes": 63},
+    ]
+    dates = np.array(sorted(history["pickup_date"].unique()))
+    splitter = TimeSeriesSplit(n_splits=5)
+    candidate_results: list[dict[str, object]] = []
+
+    for candidate_number, parameters in enumerate(candidates, start=1):
+        fold_metrics: list[dict[str, float]] = []
+        for fold_number, (train_indices, validation_indices) in enumerate(splitter.split(dates), start=1):
+            train_dates = dates[train_indices]
+            validation_dates = dates[validation_indices]
+            fold_train = history[history["pickup_date"].isin(train_dates)]
+            fold_validation = history[history["pickup_date"].isin(validation_dates)]
+            metrics = evaluate_split(
+                fold_train, fold_validation,
+                f"5-fold 후보 {candidate_number} / fold {fold_number}", parameters,
+            )
+            fold_metrics.append(metrics)
+
+        mean_metrics = {
+            key: float(np.mean([fold[key] for fold in fold_metrics]))
+            for key in fold_metrics[0]
+        }
+        candidate_results.append({
+            "parameters": parameters, "mean_metrics": mean_metrics, "folds": fold_metrics,
+        })
+        print(
+            f"[후보 {candidate_number} 5-fold 평균] "
+            f"long_mae={mean_metrics['long_mae']:.4f}, "
+            f"precision_at_3={mean_metrics['precision_at_3']:.4f}"
+        )
+
+    best = min(candidate_results, key=lambda result: result["mean_metrics"]["long_mae"])
+    print(f"[5-fold 최적 설정] {best['parameters']}")
+    return best["parameters"], {
+        "n_splits": 5,
+        "strategy": "TimeSeriesSplit (expanding window, no shuffle)",
+        "selection_metric": "mean long_trip_count MAE",
+        "best_parameters": best["parameters"],
+        "best_mean_metrics": best["mean_metrics"],
+        "candidates": candidate_results,
+    }
 
 
 def parse_prediction_time(value: str | None) -> datetime:
@@ -280,19 +347,22 @@ def main() -> None:
         args.output_dir.mkdir(parents=True, exist_ok=True)
         hourly = load_aggregate(args.parquet, args.distance_threshold)
 
-        train = hourly[hourly["day"].le(20)]
-        validation = hourly[hourly["day"].between(21, 25)]
+        # 5월 1~25일 안에서 시계열 5-fold로 설정을 선택하고, 26~31일은 최종 테스트로 보존한다.
         test_train = hourly[hourly["day"].le(25)]
         test = hourly[hourly["day"].ge(26)]
+        best_parameters, cross_validation = tune_with_time_series_5fold(test_train)
         metrics = {
-            "validation": evaluate_split(train, validation, "검증 5/21~25"),
-            "test": evaluate_split(test_train, test, "테스트 5/26~31"),
+            "cross_validation": cross_validation,
+            "test": evaluate_split(
+                test_train, test, "최종 테스트 5/26~31", best_parameters
+            ),
         }
 
-        total_model, long_model, priors = fit_models(hourly)
+        total_model, long_model, priors = fit_models(hourly, best_parameters)
         model_bundle = {
             "total_model": total_model, "long_model": long_model, "priors": priors,
             "features": FEATURES, "distance_threshold": args.distance_threshold,
+            "cross_validation": cross_validation,
         }
         joblib.dump(model_bundle, args.output_dir / "waiting_zone_demand_models.joblib")
 
