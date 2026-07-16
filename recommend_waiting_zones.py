@@ -6,6 +6,8 @@
 변경내역:
 - 2026-07-16: 현재 시각 기준 장거리 승객 대기지역 Top 3 추천 구현
 - 2026-07-16: 미래 데이터 누수를 막는 시계열 5-fold 교차검증과 모델 설정 선택 추가
+- 2026-07-16: 비용 대비 개선 폭이 작아 운영 모델은 단일 시간 분할 방식으로 복원
+- 2026-07-16: 추천 차트의 Top 3를 금·은·동 색상으로 강조해 가독성 개선
 """
 
 from __future__ import annotations
@@ -297,14 +299,30 @@ def create_dashboard(
 
     chart_frame = ranking.head(10).copy()
     chart_frame["label"] = chart_frame["Zone"] + " (" + chart_frame["Borough"] + ")"
+    chart_frame["rank_group"] = "4~10위"
+    chart_frame.loc[chart_frame.index[0], "rank_group"] = "1위"
+    chart_frame.loc[chart_frame.index[1], "rank_group"] = "2위"
+    chart_frame.loc[chart_frame.index[2], "rank_group"] = "3위"
     chart = px.bar(
         chart_frame.sort_values("predicted_long"), x="predicted_long", y="label",
-        orientation="h", color="predicted_long_rate", color_continuous_scale="Blues",
+        orientation="h", color="rank_group",
+        color_discrete_map={"1위": "#f5b700", "2위": "#8d99a8", "3위": "#c56f2d", "4~10위": "#1769aa"},
+        category_orders={"rank_group": ["1위", "2위", "3위", "4~10위"]},
         hover_data={"predicted_total": ":.1f", "predicted_long_rate": ":.1%"},
-        labels={"predicted_long": "예상 장거리 승차/시간", "label": "대기 지역", "predicted_long_rate": "장거리 비율"},
+        labels={
+            "predicted_long": "예상 장거리 승차/시간", "label": "대기 지역",
+            "predicted_long_rate": "장거리 비율", "rank_group": "추천 순위",
+        },
         title="장거리 수요 예상 상위 10개 지역",
     )
-    chart.update_layout(height=560, margin=dict(l=20, r=20, t=60, b=20))
+    chart.update_traces(marker_line_color="#ffffff", marker_line_width=1.2)
+    chart.update_layout(
+        height=560, margin=dict(l=20, r=20, t=60, b=20),
+        paper_bgcolor="#ffffff", plot_bgcolor="#f7f9fc",
+        font=dict(color="#172033", size=14),
+        xaxis=dict(gridcolor="#d9e1eb", zerolinecolor="#9aa8ba"),
+        yaxis=dict(gridcolor="#edf1f6"), legend_title_text="추천 순위",
+    )
     plot_html = chart.to_html(full_html=False, include_plotlyjs=True)
     weekday = ["월", "화", "수", "목", "금", "토", "일"][prediction_time.weekday()]
     html = f"""<!doctype html><html lang="ko"><head><meta charset="utf-8">
@@ -337,6 +355,10 @@ def main() -> None:
     parser.add_argument("--output-dir", type=Path, default=Path("recommendation_outputs"))
     parser.add_argument("--distance-threshold", type=float, default=5.0)
     parser.add_argument("--at", help='뉴욕 현지 예측 시각. 예: "2026-07-17 22:00"')
+    parser.add_argument(
+        "--compare-5fold", action="store_true",
+        help="운영 모델에는 반영하지 않고 5-fold 후보 모델의 비교 지표만 추가 계산",
+    )
     args = parser.parse_args()
 
     try:
@@ -347,22 +369,27 @@ def main() -> None:
         args.output_dir.mkdir(parents=True, exist_ok=True)
         hourly = load_aggregate(args.parquet, args.distance_threshold)
 
-        # 5월 1~25일 안에서 시계열 5-fold로 설정을 선택하고, 26~31일은 최종 테스트로 보존한다.
+        # 운영 모델은 계산 비용이 작은 단일 시간 분할을 사용한다.
         test_train = hourly[hourly["day"].le(25)]
         test = hourly[hourly["day"].ge(26)]
-        best_parameters, cross_validation = tune_with_time_series_5fold(test_train)
         metrics = {
-            "cross_validation": cross_validation,
-            "test": evaluate_split(
-                test_train, test, "최종 테스트 5/26~31", best_parameters
-            ),
+            "strategy": "single chronological holdout",
+            "test": evaluate_split(test_train, test, "단일 시간 분할 테스트 5/26~31"),
         }
+        if args.compare_5fold:
+            best_parameters, cross_validation = tune_with_time_series_5fold(test_train)
+            metrics["five_fold_comparison"] = {
+                "cross_validation": cross_validation,
+                "test": evaluate_split(
+                    test_train, test, "5-fold 선택 모델 비교 테스트", best_parameters
+                ),
+            }
 
-        total_model, long_model, priors = fit_models(hourly, best_parameters)
+        total_model, long_model, priors = fit_models(hourly)
         model_bundle = {
             "total_model": total_model, "long_model": long_model, "priors": priors,
             "features": FEATURES, "distance_threshold": args.distance_threshold,
-            "cross_validation": cross_validation,
+            "validation_strategy": "single chronological holdout",
         }
         joblib.dump(model_bundle, args.output_dir / "waiting_zone_demand_models.joblib")
 
