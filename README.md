@@ -51,9 +51,8 @@ python 울산_1반_김윤성.py yellow_tripdata_2026-05.parquet --max-training-r
 기본 장거리 기준은 5 miles이며 결과창은 HTML로 생성됩니다.
 
 운영 모델은 5월 1~25일 학습, 26~31일 테스트의 단일 시간 분할을 사용합니다.
-5-fold의 개선 폭이 비용 대비 작았기 때문입니다. 두 방식의 상세 비교는
-`model_validation_comparison.md`에서 확인할 수 있으며, 연구용 비교가 필요할 때만
-`--compare-5fold` 옵션을 사용합니다.
+5-fold의 개선 폭이 비용 대비 작았기 때문입니다. 연구용 비교가 필요할 때만
+`--compare-5fold` 옵션으로 두 방식을 다시 계산할 수 있습니다.
 
 ```bash
 python recommend_waiting_zones.py yellow_tripdata_2026-05.parquet

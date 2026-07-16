@@ -3,4 +3,6 @@ __pycache__/
 *.py[cod]
 .DS_Store
 yellow_tripdata_*.parquet
-
+project_outputs/
+recommendation_outputs/
+model_validation_comparison.md
