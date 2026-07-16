@@ -304,7 +304,7 @@ def create_dashboard(
     chart_frame.loc[chart_frame.index[1], "rank_group"] = "2위"
     chart_frame.loc[chart_frame.index[2], "rank_group"] = "3위"
     chart = px.bar(
-        chart_frame.sort_values("predicted_long"), x="predicted_long", y="label",
+        chart_frame, x="predicted_long", y="label",
         orientation="h", color="rank_group",
         color_discrete_map={"1위": "#f5b700", "2위": "#8d99a8", "3위": "#c56f2d", "4~10위": "#1769aa"},
         category_orders={"rank_group": ["1위", "2위", "3위", "4~10위"]},
@@ -321,7 +321,11 @@ def create_dashboard(
         paper_bgcolor="#ffffff", plot_bgcolor="#f7f9fc",
         font=dict(color="#172033", size=14),
         xaxis=dict(gridcolor="#d9e1eb", zerolinecolor="#9aa8ba"),
-        yaxis=dict(gridcolor="#edf1f6"), legend_title_text="추천 순위",
+        yaxis=dict(
+            gridcolor="#edf1f6", categoryorder="array",
+            categoryarray=chart_frame["label"].tolist(), autorange="reversed",
+        ),
+        legend_title_text="추천 순위",
     )
     plot_html = chart.to_html(full_html=False, include_plotlyjs=True)
     weekday = ["월", "화", "수", "목", "금", "토", "일"][prediction_time.weekday()]
