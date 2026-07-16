@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+*.py[cod]
+.DS_Store
+yellow_tripdata_*.parquet
+
