@@ -1,4 +1,4 @@
-"""SKALA 4기 울산 1반 김윤성 - End2End 데이터 분석 프로젝트.
+""" End2End 데이터 분석 프로젝트.
 
 NYC Yellow Taxi Parquet 데이터를 Pandas와 Polars로 비교 분석하고,
 EDA·시각화·통계 검정·분류 Pipeline·모델 저장·Markdown 보고서 생성을 자동화한다.
