@@ -27,13 +27,13 @@ NYC TLC의 `yellow_tripdata_2026-05.parquet` 파일을 프로젝트 루트에 �
 ## 실행
 
 ```bash
-python 울산_1반_김윤성.py yellow_tripdata_2026-05.parquet
+python end2end.py yellow_tripdata_2026-05.parquet
 ```
 
 빠른 검증을 위해 학습 표본 수를 줄일 수도 있습니다.
 
 ```bash
-python 울산_1반_김윤성.py yellow_tripdata_2026-05.parquet --max-training-rows 200000
+python end2end.py yellow_tripdata_2026-05.parquet --max-training-rows 200000
 ```
 
 실행 결과는 `project_outputs/`에 저장됩니다.
@@ -50,7 +50,7 @@ python 울산_1반_김윤성.py yellow_tripdata_2026-05.parquet --max-training-r
 과거 시간대별 수요만 사용해 전체 승차 및 장거리 승차 건수를 예측합니다.
 기본 장거리 기준은 5 miles이며 결과창은 HTML로 생성됩니다.
 
-운영 모델은 5월 1~25일 학습, 26~31일 테스트의 단일 시간 분할을 사용합니다.
+운영 모델은 5월 1-25일 학습, 26-31일 테스트의 단일 시간 분할을 사용합니다.
 5-fold의 개선 폭이 비용 대비 작았기 때문입니다. 연구용 비교가 필요할 때만
 `--compare-5fold` 옵션으로 두 방식을 다시 계산할 수 있습니다.
 
